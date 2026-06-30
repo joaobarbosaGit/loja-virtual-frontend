@@ -123,6 +123,14 @@ export const AppRoutes = () => (
         </ProtectedRoute>
       )}
     />
+    <Route
+      path="/admin/configuracoes"
+      element={(
+        <ProtectedRoute role="admin">
+          <AdminStore />
+        </ProtectedRoute>
+      )}
+    />
     <Route path="*" element={<Navigate to="/" replace />} />
   </Routes>
 );

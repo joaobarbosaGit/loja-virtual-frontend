@@ -6,6 +6,9 @@ export interface Product {
   price: number;
   originalPrice?: number;
   imageUrl: string;
+  highlightId?: number;
+  highlightImageUrl?: string;
+  highlightedAt?: string;
   categoryId: string;
   categoryName: string;
   featured: boolean;
@@ -46,6 +49,10 @@ export interface ApiProduct {
   codigoBarra: string | null;
   ativo: string;
   imagemDisponivel: boolean;
+  highlightId?: number;
+  highlightedAt?: string;
+  highlightImageAvailable?: boolean;
+  highlightImageUrl?: string;
   config: {
     imagemUrl: string;
     descricaoLoja: string;

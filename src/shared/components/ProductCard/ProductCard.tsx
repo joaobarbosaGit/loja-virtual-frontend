@@ -20,8 +20,9 @@ export const ProductCard = ({ product }: ProductCardProps) => {
   const [addedMessage, setAddedMessage] = useState('');
   const cartItem = items.find((item) => item.product.id === product.id);
   const quantityInCart = cartItem?.quantity ?? 0;
-  const isOutOfStock = product.stock <= 0;
-  const availableToAdd = Math.max(product.stock - quantityInCart, 0);
+  const maxQuantity = product.allowOutOfStockSale ? 999 : Math.max(product.stock, 0);
+  const isOutOfStock = product.stock <= 0 && !product.allowOutOfStockSale;
+  const availableToAdd = Math.max(maxQuantity - quantityInCart, 0);
   const reachedStockLimit = availableToAdd <= 0;
 
   const handleAddToCart = async () => {
@@ -62,7 +63,7 @@ export const ProductCard = ({ product }: ProductCardProps) => {
           )}
         </Box>
         <Typography color={isOutOfStock ? 'warning.main' : 'success.main'} fontWeight={700} mt={1} variant="caption">
-          {isOutOfStock ? 'Sem estoque' : `${product.stock} em estoque`}
+          {product.allowOutOfStockSale ? 'Disponivel para encomenda' : isOutOfStock ? 'Sem estoque' : `${product.stock} em estoque`}
         </Typography>
         {quantityInCart > 0 && (
           <Typography color="text.secondary" display="block" mt={0.5} variant="caption">

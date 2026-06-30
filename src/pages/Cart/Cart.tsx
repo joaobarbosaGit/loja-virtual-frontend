@@ -43,7 +43,7 @@ export const Cart = () => {
                 <Typography fontWeight={800} minWidth={24} textAlign="center">{item.quantity}</Typography>
                 <IconButton
                   aria-label="Aumentar quantidade"
-                  disabled={item.quantity >= item.product.stock}
+                  disabled={!item.product.allowOutOfStockSale && item.quantity >= item.product.stock}
                   onClick={() => void updateItemQuantity(item.product.id, item.quantity + 1)}
                 >
                   <AddIcon />

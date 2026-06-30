@@ -24,6 +24,13 @@ export const Logo = styled(Box)(({ theme }) => ({
   whiteSpace: 'nowrap',
 }));
 
+export const LogoImage = styled('img')(() => ({
+  display: 'block',
+  maxHeight: 40,
+  maxWidth: 160,
+  objectFit: 'contain',
+}));
+
 export const SearchBox = styled(Box)(({ theme }) => ({
   alignItems: 'center',
   backgroundColor: alpha(theme.palette.primary.main, 0.07),

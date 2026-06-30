@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { ChangeEvent, useEffect, useState } from 'react';
 import AddIcon from '@mui/icons-material/Add';
 import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
@@ -6,7 +6,10 @@ import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined';
 import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined';
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import StarBorderOutlinedIcon from '@mui/icons-material/StarBorderOutlined';
+import StorefrontIcon from '@mui/icons-material/Storefront';
+import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider,
   FormControl, FormControlLabel, Grid, IconButton, InputLabel, MenuItem, Paper, Select, Stack, Switch,
@@ -15,12 +18,13 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { StoreLayout } from '../../shared/layouts/StoreLayout';
-import { api } from '../../shared/services';
+import { api, resolveStoreAssetUrl } from '../../shared/services';
 import { formatCurrency } from '../../shared/utils';
+import { useStoreTheme } from '../../shared/hooks';
 
-type AdminTab = 'produtos' | 'pedidos' | 'pagamentos' | 'destaques';
+type AdminTab = 'produtos' | 'pedidos' | 'pagamentos' | 'destaques' | 'configuracoes';
 type PageResponse<T> = { page: number; limit: number; total: number; data: T[] };
-type ProductRow = { codigo: number; descricao: string; nomeGrupo?: string; precoVenda?: number; estoqueAtual?: number; lojaVisivel: boolean };
+type ProductRow = { codigo: number; descricao: string; nomeGrupo?: string; precoVenda?: number; estoqueAtual?: number; lojaVisivel: boolean; imagemDisponivel?: boolean };
 type GroupRow = { codigo: number; descricao: string };
 type OrderRow = { id: number; status: string; total: number; createdAt: string; customerName?: string; itemsCount: number };
 type Delivery = { street?: string; number?: string; complement?: string; district?: string; city?: string; state?: string; zipCode?: string };
@@ -33,13 +37,30 @@ type OrderDetail = OrderRow & {
   logs: { id: number; adminUserId?: number; adminName?: string; previousStatus?: string; newStatus?: string; field?: string; justification?: string; createdAt: string }[];
 };
 type PaymentRow = { id: number; tipo: string; descricao: string; ativo: boolean; permiteParcelamento: boolean; maxParcelas: number; valorMinimoParcela: number; instrucoes?: string };
-type HighlightRow = ProductRow & { id: number; productId: number; createdAt: string };
+type HighlightRow = ProductRow & { id: number; productId: number; createdAt: string; highlightImageAvailable?: boolean; highlightImageUrl?: string };
+type StoreSettings = {
+  codigo: number;
+  razaoSocial: string;
+  fantasia: string;
+  config: {
+    nomeSite: string;
+    corPrimaria: string;
+    corSecundaria: string;
+    corFundo: string;
+    corTexto: string;
+    logoUrl: string;
+    iconeUrl: string;
+    bannerUrl: string;
+    descricao: string;
+  };
+};
 
 const tabPaths: Record<AdminTab, string> = {
   produtos: '/admin/produtos-loja',
   pedidos: '/admin/pedidos',
   pagamentos: '/admin/pagamentos',
   destaques: '/admin/destaques',
+  configuracoes: '/admin/configuracoes',
 };
 
 const statusLabels: Record<string, string> = {
@@ -53,19 +74,54 @@ const statusLabels: Record<string, string> = {
 const statusOptions = Object.keys(statusLabels);
 const paymentTypes = ['DINHEIRO', 'PIX', 'CARTAO_CREDITO', 'CARTAO_DEBITO', 'OUTRO'];
 const emptyPayment: PaymentRow = { id: 0, tipo: 'PIX', descricao: '', ativo: true, permiteParcelamento: false, maxParcelas: 1, valorMinimoParcela: 0, instrucoes: '' };
+const emptySettings: StoreSettings = {
+  codigo: 0,
+  razaoSocial: '',
+  fantasia: '',
+  config: {
+    nomeSite: '',
+    corPrimaria: '#1976d2',
+    corSecundaria: '#00b894',
+    corFundo: '#f8fafc',
+    corTexto: '#111827',
+    logoUrl: '',
+    iconeUrl: '',
+    bannerUrl: '',
+    descricao: '',
+  },
+};
 const formatDate = (value?: string) => (value ? new Date(value).toLocaleString('pt-BR') : '-');
-const pathToTab = (path: string): AdminTab => (path.includes('/admin/pedidos') ? 'pedidos' : path.includes('/admin/pagamentos') ? 'pagamentos' : path.includes('/admin/destaques') ? 'destaques' : 'produtos');
+const normalizeHexColor = (value: string) => {
+  const color = value.trim().replace(/^#/, '').replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
+  return color ? `#${color}` : '';
+};
+const colorPickerValue = (value: string) => (/^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000');
+const pathToTab = (path: string): AdminTab => (
+  path.includes('/admin/pedidos')
+    ? 'pedidos'
+    : path.includes('/admin/pagamentos')
+      ? 'pagamentos'
+      : path.includes('/admin/destaques')
+        ? 'destaques'
+        : path.includes('/admin/configuracoes')
+          ? 'configuracoes'
+          : 'produtos'
+);
 
 export const AdminStore = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { updateStoreTheme } = useStoreTheme();
   const tab = pathToTab(location.pathname);
   const [products, setProducts] = useState<PageResponse<ProductRow>>({ page: 1, limit: 10, total: 0, data: [] });
   const [orders, setOrders] = useState<PageResponse<OrderRow>>({ page: 1, limit: 10, total: 0, data: [] });
   const [groups, setGroups] = useState<GroupRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [highlights, setHighlights] = useState<HighlightRow[]>([]);
+  const [highlightProducts, setHighlightProducts] = useState<ProductRow[]>([]);
+  const [settings, setSettings] = useState<StoreSettings>(emptySettings);
   const [selectedOrder, setSelectedOrder] = useState<OrderDetail | null>(null);
+  const [highlightDraft, setHighlightDraft] = useState<{ product: ProductRow; imageUrl: string } | null>(null);
   const [paymentForm, setPaymentForm] = useState<PaymentRow>(emptyPayment);
   const [cancelOrderId, setCancelOrderId] = useState<number | null>(null);
   const [cancelReason, setCancelReason] = useState('');
@@ -77,6 +133,9 @@ export const AdminStore = () => {
   const [page, setPage] = useState(0);
 
   const clearFeedback = () => { setMessage(''); setError(''); };
+  const updateSettingsConfig = (config: Partial<StoreSettings['config']>) => {
+    setSettings((current) => ({ ...current, config: { ...current.config, ...config } }));
+  };
 
   const loadProducts = async (nextPage = page) => {
     setLoading(true); clearFeedback();
@@ -126,6 +185,49 @@ export const AdminStore = () => {
     }
   };
 
+  const loadHighlightProducts = async () => {
+    setLoading(true); clearFeedback();
+    try {
+      const limit = 200;
+      let pageToLoad = 1;
+      let total = 0;
+      const allProducts: ProductRow[] = [];
+
+      do {
+        const { data } = await api.get<PageResponse<ProductRow>>('/admin/produtos-loja', {
+          params: {
+            page: pageToLoad,
+            limit,
+            search: filters.search,
+            visible: 'visible',
+            grupo: filters.grupo || undefined,
+          },
+        });
+        total = data.total;
+        allProducts.push(...data.data);
+        pageToLoad += 1;
+      } while (allProducts.length < total);
+
+      setHighlightProducts(allProducts);
+    } catch (requestError: any) {
+      setError(requestError.response?.data?.message ?? 'Nao foi possivel carregar os produtos visiveis.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadSettings = async () => {
+    setLoading(true); clearFeedback();
+    try {
+      const { data } = await api.get<StoreSettings>('/admin/configuracoes');
+      setSettings(data);
+    } catch (requestError: any) {
+      setError(requestError.response?.data?.message ?? 'Nao foi possivel carregar as configuracoes.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     void api.get<GroupRow[]>('/admin/produtos-loja/grupos').then(({ data }) => setGroups(data)).catch(() => undefined);
   }, []);
@@ -135,11 +237,18 @@ export const AdminStore = () => {
     if (tab === 'produtos') void loadProducts(0);
     if (tab === 'pedidos') void loadOrders(0);
     if (tab === 'pagamentos') void loadPayments();
-    if (tab === 'destaques') { void loadProducts(0); void loadHighlights(); }
+    if (tab === 'destaques') { void loadHighlightProducts(); void loadHighlights(); }
+    if (tab === 'configuracoes') void loadSettings();
   }, [tab]);
 
-  const runSearch = () => { setPage(0); if (tab === 'pedidos') void loadOrders(0); else void loadProducts(0); };
-  const availableHighlightProducts = products.data.filter((product) => product.lojaVisivel && !highlights.some((highlight) => highlight.productId === product.codigo));
+  const runSearch = () => {
+    setPage(0);
+    if (tab === 'pedidos') void loadOrders(0);
+    else if (tab === 'destaques') void loadHighlightProducts();
+    else void loadProducts(0);
+  };
+  const availableHighlightProducts = highlightProducts.filter((product) => product.lojaVisivel);
+  const highlightedProductIds = new Set(highlights.map((highlight) => highlight.productId));
 
   const toggleVisibility = async (product: ProductRow) => {
     clearFeedback();
@@ -147,7 +256,7 @@ export const AdminStore = () => {
       await api.patch(`/admin/produtos-loja/${product.codigo}/visibilidade`, { visible: !product.lojaVisivel });
       setMessage('Visibilidade do produto atualizada.');
       await loadProducts();
-      if (tab === 'destaques') await loadHighlights();
+      if (tab === 'destaques') { await loadHighlightProducts(); await loadHighlights(); }
     } catch (requestError: any) {
       setError(requestError.response?.data?.message ?? 'Nao foi possivel atualizar o produto.');
     }
@@ -228,11 +337,16 @@ export const AdminStore = () => {
     }
   };
 
-  const addHighlight = async (productId: number) => {
+  const addHighlight = async () => {
+    if (!highlightDraft) return;
     clearFeedback();
     try {
-      const { data } = await api.post<HighlightRow[]>('/admin/destaques', { productId });
+      const { data } = await api.post<HighlightRow[]>('/admin/destaques', {
+        productId: highlightDraft.product.codigo,
+        imageUrl: highlightDraft.imageUrl,
+      });
       setHighlights(data);
+      setHighlightDraft(null);
       setMessage('Produto adicionado aos destaques.');
     } catch (requestError: any) {
       setError(requestError.response?.data?.message ?? 'Nao foi possivel destacar o produto.');
@@ -248,6 +362,79 @@ export const AdminStore = () => {
     } catch (requestError: any) {
       setError(requestError.response?.data?.message ?? 'Nao foi possivel remover o destaque.');
     }
+  };
+
+  const saveSettings = async () => {
+    clearFeedback();
+    try {
+      const { data } = await api.put<StoreSettings>('/admin/configuracoes', settings.config);
+      setSettings(data);
+      updateStoreTheme({
+        siteName: data.config.nomeSite,
+        primaryColor: data.config.corPrimaria,
+        secondaryColor: data.config.corSecundaria,
+        backgroundColor: data.config.corFundo,
+        textColor: data.config.corTexto,
+        logoUrl: resolveStoreAssetUrl(data.config.logoUrl),
+        siteIconUrl: resolveStoreAssetUrl(data.config.iconeUrl),
+        bannerUrl: resolveStoreAssetUrl(data.config.bannerUrl),
+        description: data.config.descricao,
+      });
+      setMessage('Configuracoes da loja salvas.');
+    } catch (requestError: any) {
+      setError(requestError.response?.data?.message ?? 'Nao foi possivel salvar as configuracoes.');
+    }
+  };
+
+  const importLogoFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    clearFeedback();
+
+    if (!file.type.startsWith('image/')) {
+      setError('Importe um arquivo de imagem para a logo.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => updateSettingsConfig({ logoUrl: String(reader.result ?? '') });
+    reader.onerror = () => setError('Nao foi possivel importar a logo.');
+    reader.readAsDataURL(file);
+  };
+
+  const importSiteIconFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    clearFeedback();
+
+    if (!file.type.startsWith('image/')) {
+      setError('Importe um arquivo de imagem para o icone do site.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => updateSettingsConfig({ iconeUrl: String(reader.result ?? '') });
+    reader.onerror = () => setError('Nao foi possivel importar o icone do site.');
+    reader.readAsDataURL(file);
+  };
+
+  const importHighlightFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !highlightDraft) return;
+    clearFeedback();
+
+    if (!file.type.startsWith('image/')) {
+      setError('Importe um arquivo de imagem para o destaque.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => setHighlightDraft({ ...highlightDraft, imageUrl: String(reader.result ?? '') });
+    reader.onerror = () => setError('Nao foi possivel importar a imagem do destaque.');
+    reader.readAsDataURL(file);
   };
 
   const pageData = tab === 'pedidos' ? orders : products;
@@ -266,6 +453,7 @@ export const AdminStore = () => {
             <Tab icon={<LocalShippingOutlinedIcon />} iconPosition="start" label="Pedidos" value="pedidos" />
             <Tab icon={<PaymentsOutlinedIcon />} iconPosition="start" label="Pagamentos" value="pagamentos" />
             <Tab icon={<StarBorderOutlinedIcon />} iconPosition="start" label="Destaques" value="destaques" />
+            <Tab icon={<SettingsOutlinedIcon />} iconPosition="start" label="Configuracoes" value="configuracoes" />
           </Tabs>
         </Paper>
 
@@ -276,7 +464,7 @@ export const AdminStore = () => {
           <Paper sx={{ p: 2 }}>
             <Grid container spacing={2}>
               <Grid item md={5} xs={12}><TextField fullWidth label="Buscar produto" value={filters.search} onChange={(event) => setFilters({ ...filters, search: event.target.value })} /></Grid>
-              <Grid item md={3} xs={12}><FormControl fullWidth><InputLabel>Status loja</InputLabel><Select label="Status loja" value={filters.visible} onChange={(event) => setFilters({ ...filters, visible: event.target.value })}><MenuItem value="">Todos</MenuItem><MenuItem value="visible">Visiveis</MenuItem><MenuItem value="hidden">Ocultos</MenuItem></Select></FormControl></Grid>
+              <Grid item md={3} xs={12}><FormControl fullWidth><InputLabel>Status loja</InputLabel><Select disabled={tab === 'destaques'} label="Status loja" value={tab === 'destaques' ? 'visible' : filters.visible} onChange={(event) => setFilters({ ...filters, visible: event.target.value })}><MenuItem value="">Todos</MenuItem><MenuItem value="visible">Visiveis</MenuItem><MenuItem value="hidden">Ocultos</MenuItem></Select></FormControl></Grid>
               <Grid item md={3} xs={12}><FormControl fullWidth><InputLabel>Grupo</InputLabel><Select label="Grupo" value={filters.grupo} onChange={(event) => setFilters({ ...filters, grupo: event.target.value })}><MenuItem value="">Todos</MenuItem>{groups.map((group) => <MenuItem key={group.codigo} value={String(group.codigo)}>{group.descricao}</MenuItem>)}</Select></FormControl></Grid>
               <Grid item md={1} xs={12}><Button fullWidth sx={{ height: '100%' }} variant="contained" onClick={runSearch}>Filtrar</Button></Grid>
             </Grid>
@@ -326,11 +514,196 @@ export const AdminStore = () => {
 
         {tab === 'destaques' && !loading && (
           <Grid container spacing={3}>
-            <Grid item md={5} xs={12}><Paper sx={{ p: 3 }}><Typography fontWeight={800} mb={2} variant="h6">Produtos disponiveis</Typography><Stack gap={1}>{availableHighlightProducts.map((product) => <Box alignItems="center" display="flex" gap={1} key={product.codigo}><Box flex={1}><Typography fontWeight={700}>{product.descricao}</Typography><Typography color="text.secondary" variant="body2">{formatCurrency(Number(product.precoVenda ?? 0))}</Typography></Box><Button startIcon={<AddIcon />} onClick={() => void addHighlight(product.codigo)}>Adicionar</Button></Box>)}{!availableHighlightProducts.length && <Typography color="text.secondary">Nenhum produto visivel disponivel nesta busca.</Typography>}</Stack></Paper></Grid>
-            <Grid item md={7} xs={12}><Paper sx={{ p: 3 }}><Typography fontWeight={800} mb={2} variant="h6">Destaques atuais</Typography><Stack divider={<Divider />} gap={1}>{highlights.map((highlight) => <Box alignItems="center" display="flex" gap={1} key={highlight.id}><Box flex={1}><Typography fontWeight={800}>{highlight.descricao}</Typography><Typography color="text.secondary" variant="body2">Adicionado em {formatDate(highlight.createdAt)}</Typography></Box><IconButton aria-label="Remover destaque" onClick={() => void removeHighlight(highlight.id)}><DeleteOutlineIcon /></IconButton></Box>)}{!highlights.length && <Typography color="text.secondary">Nenhum produto em destaque.</Typography>}</Stack></Paper></Grid>
+            <Grid item md={5} xs={12}><Paper sx={{ p: 3 }}><Typography fontWeight={800} mb={2} variant="h6">Produtos disponiveis</Typography><Stack gap={1}>{availableHighlightProducts.map((product) => { const alreadyHighlighted = highlightedProductIds.has(product.codigo); return <Box alignItems="center" display="flex" gap={1} key={product.codigo}><Box flex={1}><Typography fontWeight={700}>{product.descricao}</Typography><Typography color="text.secondary" variant="body2">{formatCurrency(Number(product.precoVenda ?? 0))}</Typography></Box><Button disabled={alreadyHighlighted} startIcon={<AddIcon />} onClick={() => setHighlightDraft({ product, imageUrl: '' })}>{alreadyHighlighted ? 'Ja destacado' : 'Adicionar'}</Button></Box>; })}{!availableHighlightProducts.length && <Typography color="text.secondary">Nenhum produto marcado como visivel na loja foi encontrado.</Typography>}</Stack></Paper></Grid>
+            <Grid item md={7} xs={12}><Paper sx={{ p: 3 }}><Typography fontWeight={800} mb={2} variant="h6">Destaques atuais</Typography><Stack divider={<Divider />} gap={1}>{highlights.map((highlight) => <Box alignItems="center" display="flex" gap={1} key={highlight.id}>{highlight.highlightImageUrl && <Box component="img" src={highlight.highlightImageUrl} sx={{ borderRadius: 1, height: 52, objectFit: 'cover', width: 72 }} />}<Box flex={1}><Typography fontWeight={800}>{highlight.descricao}</Typography><Typography color="text.secondary" variant="body2">Adicionado em {formatDate(highlight.createdAt)}</Typography>{highlight.highlightImageAvailable && <Typography color="text.secondary" variant="caption">Imagem importada</Typography>}</Box><IconButton aria-label="Remover destaque" onClick={() => void removeHighlight(highlight.id)}><DeleteOutlineIcon /></IconButton></Box>)}{!highlights.length && <Typography color="text.secondary">Nenhum produto em destaque.</Typography>}</Stack></Paper></Grid>
+          </Grid>
+        )}
+
+        {tab === 'configuracoes' && !loading && (
+          <Grid container spacing={3}>
+            <Grid item md={7} xs={12}>
+              <Paper sx={{ p: 3 }}>
+                <Stack gap={2}>
+                  <Typography fontWeight={800} variant="h6">Identidade do site</Typography>
+                  <TextField
+                    fullWidth
+                    label="Nome oficial do site"
+                    value={settings.config.nomeSite}
+                    onChange={(event) => updateSettingsConfig({ nomeSite: event.target.value })}
+                  />
+                  <TextField
+                    fullWidth
+                    label="Logo oficial do site"
+                    placeholder="https://..."
+                    value={settings.config.logoUrl}
+                    onChange={(event) => updateSettingsConfig({ logoUrl: event.target.value })}
+                  />
+                  <Box display="flex" flexWrap="wrap" gap={1}>
+                    <Button component="label" startIcon={<UploadFileOutlinedIcon />} variant="outlined">
+                      Importar arquivo
+                      <input hidden accept="image/*" type="file" onChange={importLogoFile} />
+                    </Button>
+                    {settings.config.logoUrl && (
+                      <Button color="error" startIcon={<DeleteOutlineIcon />} onClick={() => updateSettingsConfig({ logoUrl: '' })}>
+                        Remover logo
+                      </Button>
+                    )}
+                  </Box>
+                  <Typography color="text.secondary" variant="body2">
+                    Voce pode informar um link ou importar PNG, JPG, WEBP, GIF ou SVG.
+                  </Typography>
+                  <TextField
+                    fullWidth
+                    label="Icone do site"
+                    placeholder="https://..."
+                    value={settings.config.iconeUrl}
+                    onChange={(event) => updateSettingsConfig({ iconeUrl: event.target.value })}
+                  />
+                  <Box alignItems="center" display="flex" flexWrap="wrap" gap={1}>
+                    <Button component="label" startIcon={<UploadFileOutlinedIcon />} variant="outlined">
+                      Importar icone
+                      <input hidden accept="image/*" type="file" onChange={importSiteIconFile} />
+                    </Button>
+                    {settings.config.iconeUrl && (
+                      <Button color="error" startIcon={<DeleteOutlineIcon />} onClick={() => updateSettingsConfig({ iconeUrl: '' })}>
+                        Remover icone
+                      </Button>
+                    )}
+                    {settings.config.iconeUrl && (
+                      <Box
+                        component="img"
+                        src={resolveStoreAssetUrl(settings.config.iconeUrl)}
+                        alt="Icone do site"
+                        sx={{ borderRadius: 1, height: 32, objectFit: 'contain', width: 32 }}
+                      />
+                    )}
+                  </Box>
+                  <Typography color="text.secondary" variant="body2">
+                    Este icone aparece na aba do navegador. Use uma imagem quadrada, preferencialmente 32x32 ou 64x64.
+                  </Typography>
+                  <Grid container spacing={2}>
+                    <Grid item sm={3} xs={12}>
+                      <TextField
+                        fullWidth
+                        InputLabelProps={{ shrink: true }}
+                        label="Cor primaria"
+                        type="color"
+                        value={colorPickerValue(settings.config.corPrimaria)}
+                        onChange={(event) => updateSettingsConfig({ corPrimaria: event.target.value })}
+                      />
+                    </Grid>
+                    <Grid item sm={3} xs={12}>
+                      <TextField
+                        fullWidth
+                        label="Hex primaria"
+                        value={settings.config.corPrimaria.replace(/^#/, '')}
+                        onChange={(event) => updateSettingsConfig({ corPrimaria: normalizeHexColor(event.target.value) })}
+                      />
+                    </Grid>
+                    <Grid item sm={3} xs={12}>
+                      <TextField
+                        fullWidth
+                        InputLabelProps={{ shrink: true }}
+                        label="Cor secundaria"
+                        type="color"
+                        value={colorPickerValue(settings.config.corSecundaria)}
+                        onChange={(event) => updateSettingsConfig({ corSecundaria: event.target.value })}
+                      />
+                    </Grid>
+                    <Grid item sm={3} xs={12}>
+                      <TextField
+                        fullWidth
+                        label="Hex secundaria"
+                        value={settings.config.corSecundaria.replace(/^#/, '')}
+                        onChange={(event) => updateSettingsConfig({ corSecundaria: normalizeHexColor(event.target.value) })}
+                      />
+                    </Grid>
+                  </Grid>
+                  <Button variant="contained" onClick={() => void saveSettings()}>Salvar configuracoes</Button>
+                </Stack>
+              </Paper>
+            </Grid>
+            <Grid item md={5} xs={12}>
+              <Paper sx={{ p: 3 }}>
+                <Stack gap={2}>
+                  <Typography fontWeight={800} variant="h6">Previa</Typography>
+                  <Box
+                    sx={{
+                      alignItems: 'center',
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      borderRadius: 2,
+                      display: 'flex',
+                      gap: 2,
+                      p: 2,
+                    }}
+                  >
+                    {settings.config.logoUrl ? (
+                      <Box component="img" src={resolveStoreAssetUrl(settings.config.logoUrl)} alt={settings.config.nomeSite} sx={{ maxHeight: 56, maxWidth: 160, objectFit: 'contain' }} />
+                    ) : (
+                      <StorefrontIcon sx={{ color: colorPickerValue(settings.config.corPrimaria), fontSize: 40 }} />
+                    )}
+                    <Box>
+                      <Typography fontWeight={900}>{settings.config.nomeSite || settings.fantasia || 'Nome do site'}</Typography>
+                      <Typography color="text.secondary" variant="body2">{settings.razaoSocial || 'Empresa logada'}</Typography>
+                    </Box>
+                  </Box>
+                  <Box display="flex" gap={1}>
+                    <Chip label="Primaria" sx={{ bgcolor: colorPickerValue(settings.config.corPrimaria), color: '#fff' }} />
+                    <Chip label="Secundaria" sx={{ bgcolor: colorPickerValue(settings.config.corSecundaria), color: '#fff' }} />
+                  </Box>
+                </Stack>
+              </Paper>
+            </Grid>
           </Grid>
         )}
       </Stack>
+
+      <Dialog fullWidth maxWidth="sm" open={Boolean(highlightDraft)} onClose={() => setHighlightDraft(null)}>
+        <DialogTitle>Adicionar destaque</DialogTitle>
+        <DialogContent>
+          {highlightDraft && (
+            <Stack gap={2} sx={{ pt: 1 }}>
+              <Box>
+                <Typography fontWeight={800}>{highlightDraft.product.descricao}</Typography>
+                <Typography color="text.secondary" variant="body2">{formatCurrency(Number(highlightDraft.product.precoVenda ?? 0))}</Typography>
+              </Box>
+              <TextField
+                fullWidth
+                label="Imagem do destaque"
+                placeholder="https://..."
+                value={highlightDraft.imageUrl.startsWith('data:image/') ? 'Imagem importada' : highlightDraft.imageUrl}
+                onChange={(event) => setHighlightDraft({ ...highlightDraft, imageUrl: event.target.value })}
+              />
+              <Box display="flex" flexWrap="wrap" gap={1}>
+                <Button component="label" startIcon={<UploadFileOutlinedIcon />} variant="outlined">
+                  Importar imagem
+                  <input hidden accept="image/*" type="file" onChange={importHighlightFile} />
+                </Button>
+                {highlightDraft.imageUrl && (
+                  <Button color="error" startIcon={<DeleteOutlineIcon />} onClick={() => setHighlightDraft({ ...highlightDraft, imageUrl: '' })}>
+                    Remover imagem
+                  </Button>
+                )}
+              </Box>
+              {highlightDraft.imageUrl && (
+                <Box
+                  component="img"
+                  src={highlightDraft.imageUrl}
+                  alt={highlightDraft.product.descricao}
+                  sx={{ aspectRatio: '16 / 9', borderRadius: 1, objectFit: 'cover', width: '100%' }}
+                />
+              )}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setHighlightDraft(null)}>Cancelar</Button>
+          <Button disabled={!highlightDraft?.imageUrl} variant="contained" onClick={() => void addHighlight()}>
+            Salvar destaque
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog fullWidth maxWidth="md" open={Boolean(selectedOrder)} onClose={() => setSelectedOrder(null)}>
         <DialogTitle>{selectedOrder ? `Pedido #${selectedOrder.id}` : 'Pedido'}</DialogTitle>

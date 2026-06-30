@@ -20,7 +20,7 @@ const iconMap = {
 };
 
 export const CategoryCard = ({ category }: CategoryCardProps) => (
-  <CategoryCardContainer>
+  <CategoryCardContainer to={`/products?grupo=${category.id}`}>
     <IconBox>{iconMap[category.icon as keyof typeof iconMap] ?? <StorefrontIcon />}</IconBox>
     <Typography fontWeight={700}>{category.name}</Typography>
   </CategoryCardContainer>

@@ -1,9 +1,11 @@
 import { CartItem, Product } from '../protocols';
 
+const getMaxQuantity = (product: Product) => (product.allowOutOfStockSale ? 999 : Math.max(product.stock, 0));
+
 export const cartService = {
   async addItem(items: CartItem[], product: Product, quantity = 1): Promise<CartItem[]> {
     const item = items.find((cartItem) => cartItem.product.id === product.id);
-    const maxQuantity = Math.max(product.stock, 0);
+    const maxQuantity = getMaxQuantity(product);
     const quantityToAdd = Math.max(Math.floor(quantity), 1);
 
     if (maxQuantity <= 0) {
@@ -32,7 +34,7 @@ export const cartService = {
       items
         .map((item) =>
           item.product.id === productId
-            ? { ...item, quantity: Math.min(Math.max(Math.floor(quantity), 0), Math.max(item.product.stock, 0)) }
+            ? { ...item, quantity: Math.min(Math.max(Math.floor(quantity), 0), getMaxQuantity(item.product)) }
             : item,
         )
         .filter((item) => item.quantity > 0),

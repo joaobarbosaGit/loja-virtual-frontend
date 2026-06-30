@@ -8,6 +8,10 @@ import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import PersonOutlineOutlinedIcon from '@mui/icons-material/PersonOutlineOutlined';
+import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
+import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined';
+import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined';
+import StarBorderOutlinedIcon from '@mui/icons-material/StarBorderOutlined';
 import {
   Badge,
   Box,
@@ -30,7 +34,8 @@ import { Link as RouterLink, useNavigate } from 'react-router-dom';
 
 import { useCart } from '../../hooks';
 import { useAuth } from '../../hooks';
-import { Logo, StyledAppBar, StyledToolbar } from './styles';
+import { useStoreTheme } from '../../hooks';
+import { Logo, LogoImage, StyledAppBar, StyledToolbar } from './styles';
 
 interface HeaderProps {
   onCartClick: () => void;
@@ -40,6 +45,7 @@ interface HeaderProps {
 export const Header = ({ onCartClick, onMenuClick }: HeaderProps) => {
   const { itemsCount } = useCart();
   const { logout, user } = useAuth();
+  const { storeTheme } = useStoreTheme();
   const navigate = useNavigate();
   const [userMenuAnchor, setUserMenuAnchor] = useState<HTMLElement | null>(null);
   const [isLogoutDialogOpen, setIsLogoutDialogOpen] = useState(false);
@@ -75,9 +81,13 @@ export const Header = ({ onCartClick, onMenuClick }: HeaderProps) => {
         </Tooltip>
 
         <Logo>
-          <StorefrontIcon color="primary" />
+          {storeTheme.logoUrl ? (
+            <LogoImage alt={storeTheme.siteName} src={storeTheme.logoUrl} />
+          ) : (
+            <StorefrontIcon color="primary" />
+          )}
           <Link color="inherit" component={RouterLink} to={user?.role === 'admin' ? '/admin' : '/home'} underline="none">
-            Loja B2C
+            {storeTheme.siteName}
           </Link>
         </Logo>
 
@@ -133,27 +143,33 @@ export const Header = ({ onCartClick, onMenuClick }: HeaderProps) => {
               </MenuItem>
               <MenuItem onClick={() => { handleCloseUserMenu(); navigate('/admin/produtos-loja'); }}>
                 <ListItemIcon>
-                  <StorefrontIcon fontSize="small" />
+                  <Inventory2OutlinedIcon fontSize="small" />
                 </ListItemIcon>
                 <ListItemText>Produtos da loja</ListItemText>
               </MenuItem>
               <MenuItem onClick={() => { handleCloseUserMenu(); navigate('/admin/pedidos'); }}>
                 <ListItemIcon>
-                  <ReceiptLongOutlinedIcon fontSize="small" />
+                  <LocalShippingOutlinedIcon fontSize="small" />
                 </ListItemIcon>
                 <ListItemText>Pedidos e entregas</ListItemText>
               </MenuItem>
               <MenuItem onClick={() => { handleCloseUserMenu(); navigate('/admin/pagamentos'); }}>
                 <ListItemIcon>
-                  <SettingsOutlinedIcon fontSize="small" />
+                  <PaymentsOutlinedIcon fontSize="small" />
                 </ListItemIcon>
                 <ListItemText>Pagamentos</ListItemText>
               </MenuItem>
               <MenuItem onClick={() => { handleCloseUserMenu(); navigate('/admin/destaques'); }}>
                 <ListItemIcon>
-                  <SettingsOutlinedIcon fontSize="small" />
+                  <StarBorderOutlinedIcon fontSize="small" />
                 </ListItemIcon>
                 <ListItemText>Destaques</ListItemText>
+              </MenuItem>
+              <MenuItem onClick={() => { handleCloseUserMenu(); navigate('/admin/configuracoes'); }}>
+                <ListItemIcon>
+                  <SettingsOutlinedIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Configuracoes</ListItemText>
               </MenuItem>
             </>
           ) : (

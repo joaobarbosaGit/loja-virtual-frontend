@@ -28,9 +28,14 @@ const mapProduct = (product: ApiProduct): Product => {
     imageUrl: product.imagemDisponivel
       ? `${environments.apiBaseUrl}/loja/${environments.storeSlug}/produtos/${product.codigo}/imagem`
       : product.config.imagemUrl || fallbackImageUrl,
+    highlightId: product.highlightId,
+    highlightImageUrl: product.highlightImageAvailable && product.highlightId
+      ? `${environments.apiBaseUrl}/loja/${environments.storeSlug}/destaques/${product.highlightId}/imagem`
+      : product.highlightImageUrl || undefined,
+    highlightedAt: product.highlightedAt,
     categoryId: product.grupo ? String(product.grupo) : '',
     categoryName: product.nomeGrupo ?? '',
-    featured: product.config.destaque,
+    featured: product.config.destaque || Boolean(product.highlightId),
     stock: product.estoqueAtual ?? 0,
     allowOutOfStockSale: product.config.permiteVendaSemEstoque,
   };

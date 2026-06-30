@@ -27,6 +27,23 @@ export const StoreThemeProvider = ({ children }: StoreThemeProviderProps) => {
       .catch(() => setStoreTheme(defaultStoreTheme));
   }, []);
 
+  useEffect(() => {
+    document.title = storeTheme.siteName || defaultStoreTheme.siteName;
+
+    let favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!favicon) {
+      favicon = document.createElement('link');
+      favicon.rel = 'icon';
+      document.head.appendChild(favicon);
+    }
+
+    if (storeTheme.siteIconUrl) {
+      favicon.href = storeTheme.siteIconUrl;
+    } else {
+      favicon.removeAttribute('href');
+    }
+  }, [storeTheme.siteIconUrl, storeTheme.siteName]);
+
   const value = useMemo(
     () => ({
       storeTheme,

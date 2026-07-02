@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useState } from 'react';
+﻿import { ChangeEvent, useEffect, useState } from 'react';
 import AddIcon from '@mui/icons-material/Add';
 import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
@@ -18,7 +18,7 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { StoreLayout } from '../../shared/layouts/StoreLayout';
-import { api, resolveStoreAssetUrl } from '../../shared/services';
+import { api, getApiBaseUrl, resolveStoreAssetUrl, updateApiBaseUrl } from '../../shared/services';
 import { formatCurrency } from '../../shared/utils';
 import { useStoreTheme } from '../../shared/hooks';
 
@@ -125,12 +125,20 @@ export const AdminStore = () => {
   const [paymentForm, setPaymentForm] = useState<PaymentRow>(emptyPayment);
   const [cancelOrderId, setCancelOrderId] = useState<number | null>(null);
   const [cancelReason, setCancelReason] = useState('');
+  const [statusEdit, setStatusEdit] = useState<{ status: string; observation: string } | null>(null);
   const [deliveryEdit, setDeliveryEdit] = useState<Delivery | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [filters, setFilters] = useState({ search: '', visible: '', grupo: '', status: '', cliente: '', startDate: '', endDate: '' });
   const [page, setPage] = useState(0);
+  const [apiBaseUrl, setApiBaseUrl] = useState(getApiBaseUrl());
+  const [apiBaseUrlDraft, setApiBaseUrlDraft] = useState(apiBaseUrl);
+  const [apiUrlDialogOpen, setApiUrlDialogOpen] = useState(false);
+  const [apiUrlConfirmOpen, setApiUrlConfirmOpen] = useState(false);
+  const [settingsConfirmOpen, setSettingsConfirmOpen] = useState(false);
+  const [healthChecking, setHealthChecking] = useState(false);
+  const [healthResult, setHealthResult] = useState('');
 
   const clearFeedback = () => { setMessage(''); setError(''); };
   const updateSettingsConfig = (config: Partial<StoreSettings['config']>) => {
@@ -272,12 +280,22 @@ export const AdminStore = () => {
     }
   };
 
-  const updateOrderStatus = async (status: string) => {
+  const openStatusEdit = () => {
     if (!selectedOrder) return;
     clearFeedback();
+    setStatusEdit({ status: selectedOrder.status, observation: '' });
+  };
+
+  const updateOrderStatus = async () => {
+    if (!selectedOrder || !statusEdit) return;
+    clearFeedback();
     try {
-      const { data } = await api.patch<OrderDetail>(`/admin/pedidos/${selectedOrder.id}/status`, { status });
+      const { data } = await api.patch<OrderDetail>(`/admin/pedidos/${selectedOrder.id}/status`, {
+        status: statusEdit.status,
+        justification: statusEdit.observation.trim() || undefined,
+      });
       setSelectedOrder(data);
+      setStatusEdit(null);
       setMessage('Status do pedido atualizado.');
       await loadOrders();
     } catch (requestError: any) {
@@ -364,6 +382,58 @@ export const AdminStore = () => {
     }
   };
 
+  const openApiBaseUrlDialog = () => {
+    clearFeedback();
+    setHealthResult('');
+    setApiBaseUrlDraft(apiBaseUrl);
+    setApiUrlDialogOpen(true);
+  };
+
+  const requestSaveApiBaseUrl = () => {
+    clearFeedback();
+
+    try {
+      const url = new URL(apiBaseUrlDraft.trim());
+      if (!['http:', 'https:'].includes(url.protocol)) {
+        throw new Error('Informe uma URL iniciando com http:// ou https://.');
+      }
+      setApiUrlConfirmOpen(true);
+    } catch (validationError: any) {
+      setError(validationError.message ?? 'Informe uma URL valida para o servidor.');
+    }
+  };
+
+  const saveApiBaseUrlChange = () => {
+    clearFeedback();
+
+    try {
+      const nextBaseUrl = updateApiBaseUrl(apiBaseUrlDraft);
+      setApiBaseUrl(nextBaseUrl);
+      setApiBaseUrlDraft(nextBaseUrl);
+      setApiUrlDialogOpen(false);
+      setApiUrlConfirmOpen(false);
+      setHealthResult('');
+      setMessage('URL do servidor atualizada. As proximas requisicoes usarao este endereco.');
+    } catch (validationError: any) {
+      setApiUrlConfirmOpen(false);
+      setError(validationError.message ?? 'Informe uma URL valida para o servidor.');
+    }
+  };
+
+  const testHealthCheck = async () => {
+    clearFeedback();
+    setHealthResult('');
+    setHealthChecking(true);
+
+    try {
+      await api.get('/health');
+      setHealthResult('Comunicacao com a API confirmada.');
+    } catch (requestError: any) {
+      setHealthResult(requestError.response?.data?.message ?? 'Nao foi possivel comunicar com a API configurada.');
+    } finally {
+      setHealthChecking(false);
+    }
+  };
   const saveSettings = async () => {
     clearFeedback();
     try {
@@ -524,7 +594,25 @@ export const AdminStore = () => {
             <Grid item md={7} xs={12}>
               <Paper sx={{ p: 3 }}>
                 <Stack gap={2}>
-                  <Typography fontWeight={800} variant="h6">Identidade do site</Typography>
+                  <Typography fontWeight={800} variant="h6">Servidor da aplicacao</Typography>
+                  <TextField
+                    fullWidth
+                    disabled
+                    label="URL atual da API"
+                    value={apiBaseUrl}
+                  />
+                  <Box display="flex" flexWrap="wrap" gap={1}>
+                    <Button startIcon={<EditOutlinedIcon />} variant="outlined" onClick={openApiBaseUrlDialog}>
+                      Alterar URL
+                    </Button>
+                    <Button disabled={healthChecking} variant="outlined" onClick={() => void testHealthCheck()}>
+                      {healthChecking ? <CircularProgress color="inherit" size={20} /> : 'Testar comunicacao'}
+                    </Button>
+                  </Box>
+                  {healthResult && (
+                    <Alert severity={healthResult.startsWith('Comunicacao') ? 'success' : 'error'}>{healthResult}</Alert>
+                  )}
+                  <Divider />                  <Typography fontWeight={800} variant="h6">Identidade do site</Typography>
                   <TextField
                     fullWidth
                     label="Nome oficial do site"
@@ -619,7 +707,7 @@ export const AdminStore = () => {
                       />
                     </Grid>
                   </Grid>
-                  <Button variant="contained" onClick={() => void saveSettings()}>Salvar configuracoes</Button>
+                  <Button variant="contained" onClick={() => setSettingsConfirmOpen(true)}>Salvar configuracoes</Button>
                 </Stack>
               </Paper>
             </Grid>
@@ -659,6 +747,56 @@ export const AdminStore = () => {
         )}
       </Stack>
 
+      <Dialog fullWidth maxWidth="sm" open={apiUrlDialogOpen} onClose={() => setApiUrlDialogOpen(false)}>
+        <DialogTitle>Alterar servidor da aplicacao</DialogTitle>
+        <DialogContent>
+          <Stack gap={2} sx={{ pt: 1 }}>
+            <Alert severity="warning">
+              Alterar esta URL muda o servidor usado pela aplicacao neste navegador.
+            </Alert>
+            <TextField
+              autoFocus
+              fullWidth
+              label="URL do servidor"
+              placeholder="http://localhost:3333"
+              value={apiBaseUrlDraft}
+              onChange={(event) => setApiBaseUrlDraft(event.target.value)}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setApiUrlDialogOpen(false)}>Cancelar</Button>
+          <Button variant="contained" onClick={requestSaveApiBaseUrl}>Salvar URL</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={apiUrlConfirmOpen} onClose={() => setApiUrlConfirmOpen(false)}>
+        <DialogTitle>Confirmar nova URL</DialogTitle>
+        <DialogContent>
+          <Alert severity="info">
+            A aplicacao passara a apontar para {apiBaseUrlDraft.trim()}. Confirme apenas se este servidor estiver correto.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setApiUrlConfirmOpen(false)}>Voltar</Button>
+          <Button variant="contained" onClick={saveApiBaseUrlChange}>Confirmar</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={settingsConfirmOpen} onClose={() => setSettingsConfirmOpen(false)}>
+        <DialogTitle>Salvar configuracoes</DialogTitle>
+        <DialogContent>
+          <Alert severity="info">
+            As alteracoes de identidade da loja serao salvas e refletidas para os usuarios.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSettingsConfirmOpen(false)}>Cancelar</Button>
+          <Button variant="contained" onClick={() => { setSettingsConfirmOpen(false); void saveSettings(); }}>
+            Salvar
+          </Button>
+        </DialogActions>
+      </Dialog>
       <Dialog fullWidth maxWidth="sm" open={Boolean(highlightDraft)} onClose={() => setHighlightDraft(null)}>
         <DialogTitle>Adicionar destaque</DialogTitle>
         <DialogContent>
@@ -707,10 +845,53 @@ export const AdminStore = () => {
 
       <Dialog fullWidth maxWidth="md" open={Boolean(selectedOrder)} onClose={() => setSelectedOrder(null)}>
         <DialogTitle>{selectedOrder ? `Pedido #${selectedOrder.id}` : 'Pedido'}</DialogTitle>
-        <DialogContent dividers>{selectedOrder && <Stack gap={3}><Box display="flex" flexWrap="wrap" gap={1}><Chip label={statusLabels[selectedOrder.status] ?? selectedOrder.status} /><Chip label={formatCurrency(Number(selectedOrder.total))} color="primary" /></Box><FormControl fullWidth><InputLabel>Status</InputLabel><Select label="Status" value={selectedOrder.status} onChange={(event) => void updateOrderStatus(event.target.value)}>{statusOptions.map((status) => <MenuItem key={status} value={status}>{statusLabels[status]}</MenuItem>)}</Select></FormControl><Box><Typography fontWeight={800} mb={1}>Itens</Typography><Stack divider={<Divider />}>{selectedOrder.items.map((item) => <Box display="flex" justifyContent="space-between" py={1} key={item.id}><Typography>{Number(item.quantity)}x {item.productName}</Typography><Typography fontWeight={800}>{formatCurrency(Number(item.total))}</Typography></Box>)}</Stack></Box><Box><Box alignItems="center" display="flex" justifyContent="space-between"><Typography fontWeight={800}>Entrega</Typography><Button startIcon={<EditOutlinedIcon />} onClick={() => setDeliveryEdit(selectedOrder.delivery ?? {})}>Editar</Button></Box>{selectedOrder.delivery ? <Typography color="text.secondary">{selectedOrder.delivery.street}, {selectedOrder.delivery.number}<br />{selectedOrder.delivery.district} - {selectedOrder.delivery.city}/{selectedOrder.delivery.state}<br />CEP {selectedOrder.delivery.zipCode}</Typography> : <Typography color="text.secondary">Nao informada.</Typography>}</Box><Box><Typography fontWeight={800}>Pagamento</Typography><Typography color="text.secondary">{selectedOrder.payment?.description ?? selectedOrder.payment?.brand ?? 'Nao informado'}{selectedOrder.payment?.installments ? ` - ${selectedOrder.payment.installments}x` : ''}</Typography></Box>{selectedOrder.cancellation && <Alert severity="warning">Cancelamento: {selectedOrder.cancellation.reason}</Alert>}<Box><Typography fontWeight={800} mb={1}>Historico</Typography><Stack gap={1}>{selectedOrder.logs.map((log) => <Paper variant="outlined" sx={{ p: 1.5 }} key={log.id}><Typography fontWeight={700}>{log.field ? `Alteracao em ${log.field}` : 'Alteracao de status'}</Typography><Typography color="text.secondary" variant="body2">{formatDate(log.createdAt)} - {log.adminName ?? `Usuario ${log.adminUserId ?? ''}`}</Typography><Typography variant="body2">{log.previousStatus || '-'}{' -> '}{log.newStatus || '-'}</Typography>{log.justification && <Typography color="text.secondary" variant="body2">Justificativa: {log.justification}</Typography>}</Paper>)}{!selectedOrder.logs.length && <Typography color="text.secondary">Nenhum log registrado.</Typography>}</Stack></Box></Stack>}</DialogContent>
+        <DialogContent dividers>{selectedOrder && <Stack gap={3}><Box display="flex" flexWrap="wrap" gap={1}><Chip label={statusLabels[selectedOrder.status] ?? selectedOrder.status} /><Chip label={formatCurrency(Number(selectedOrder.total))} color="primary" /></Box><Box alignItems="center" display="flex" flexWrap="wrap" gap={1} justifyContent="space-between"><Box><Typography fontWeight={800}>Status do pedido</Typography><Typography color="text.secondary" variant="body2">{statusLabels[selectedOrder.status] ?? selectedOrder.status}</Typography></Box><Button startIcon={<EditOutlinedIcon />} variant="outlined" onClick={openStatusEdit}>Alterar status</Button></Box><Box><Typography fontWeight={800} mb={1}>Itens</Typography><Stack divider={<Divider />}>{selectedOrder.items.map((item) => <Box display="flex" justifyContent="space-between" py={1} key={item.id}><Typography>{Number(item.quantity)}x {item.productName}</Typography><Typography fontWeight={800}>{formatCurrency(Number(item.total))}</Typography></Box>)}</Stack></Box><Box><Box alignItems="center" display="flex" justifyContent="space-between"><Typography fontWeight={800}>Entrega</Typography><Button startIcon={<EditOutlinedIcon />} onClick={() => setDeliveryEdit(selectedOrder.delivery ?? {})}>Editar</Button></Box>{selectedOrder.delivery ? <Typography color="text.secondary">{selectedOrder.delivery.street}, {selectedOrder.delivery.number}<br />{selectedOrder.delivery.district} - {selectedOrder.delivery.city}/{selectedOrder.delivery.state}<br />CEP {selectedOrder.delivery.zipCode}</Typography> : <Typography color="text.secondary">Nao informada.</Typography>}</Box><Box><Typography fontWeight={800}>Pagamento</Typography><Typography color="text.secondary">{selectedOrder.payment?.description ?? selectedOrder.payment?.brand ?? 'Nao informado'}{selectedOrder.payment?.installments ? ` - ${selectedOrder.payment.installments}x` : ''}</Typography></Box>{selectedOrder.cancellation && <Alert severity="warning">Cancelamento: {selectedOrder.cancellation.reason}</Alert>}<Box><Typography fontWeight={800} mb={1}>Historico</Typography><Stack gap={1}>{selectedOrder.logs.map((log) => <Paper variant="outlined" sx={{ p: 1.5 }} key={log.id}><Typography fontWeight={700}>{log.field ? `Alteracao em ${log.field}` : 'Alteracao de status'}</Typography><Typography color="text.secondary" variant="body2">{formatDate(log.createdAt)} - {log.adminName ?? `Usuario ${log.adminUserId ?? ''}`}</Typography><Typography variant="body2">{log.previousStatus || '-'}{' -> '}{log.newStatus || '-'}</Typography>{log.justification && <Typography color="text.secondary" variant="body2">Observacao: {log.justification}</Typography>}</Paper>)}{!selectedOrder.logs.length && <Typography color="text.secondary">Nenhum log registrado.</Typography>}</Stack></Box></Stack>}</DialogContent>
         <DialogActions><Button color="error" startIcon={<CancelOutlinedIcon />} onClick={() => { setCancelOrderId(selectedOrder?.id ?? null); setCancelReason(''); }}>Cancelar pedido</Button><Button onClick={() => setSelectedOrder(null)}>Fechar</Button></DialogActions>
       </Dialog>
 
+      <Dialog fullWidth maxWidth="sm" open={Boolean(statusEdit)} onClose={() => setStatusEdit(null)}>
+        <DialogTitle>Alterar status do pedido</DialogTitle>
+        <DialogContent>
+          {selectedOrder && statusEdit && (
+            <Stack gap={2} sx={{ pt: 1 }}>
+              <Alert severity="info">
+                O novo status sera registrado no historico do pedido junto com a observacao informada.
+              </Alert>
+              <FormControl fullWidth>
+                <InputLabel>Novo status</InputLabel>
+                <Select
+                  label="Novo status"
+                  value={statusEdit.status}
+                  onChange={(event) => setStatusEdit({ ...statusEdit, status: event.target.value })}
+                >
+                  {statusOptions.map((status) => (
+                    <MenuItem key={status} value={status}>{statusLabels[status]}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <TextField
+                fullWidth
+                multiline
+                minRows={3}
+                label="Observacoes"
+                placeholder="Informe detalhes sobre a alteracao de status"
+                value={statusEdit.observation}
+                onChange={(event) => setStatusEdit({ ...statusEdit, observation: event.target.value })}
+              />
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setStatusEdit(null)}>Cancelar</Button>
+          <Button
+            disabled={!selectedOrder || !statusEdit || statusEdit.status === selectedOrder.status}
+            variant="contained"
+            onClick={() => void updateOrderStatus()}
+          >
+            Salvar status
+          </Button>
+        </DialogActions>
+      </Dialog>
       <Dialog open={Boolean(cancelOrderId)} onClose={() => setCancelOrderId(null)}>
         <DialogTitle>Cancelar pedido</DialogTitle>
         <DialogContent><Stack gap={2} sx={{ pt: 1, minWidth: 360 }}><Alert severity="warning">Informe a justificativa que sera visivel ao cliente.</Alert><TextField autoFocus multiline minRows={3} label="Justificativa" value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} /></Stack></DialogContent>
@@ -725,3 +906,7 @@ export const AdminStore = () => {
     </StoreLayout>
   );
 };
+
+
+
+

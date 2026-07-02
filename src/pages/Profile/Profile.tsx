@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+﻿import { FormEvent, useEffect, useState } from 'react';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import {
   Alert,
@@ -187,8 +187,19 @@ export const Profile = () => {
   };
 
   const removeCard = async (id: string) => {
-    await api.delete(`/loja/perfil/pagamentos/${id}`);
-    await load();
+    setSaving(true);
+    setMessage('');
+    setError('');
+
+    try {
+      await api.delete(`/loja/perfil/pagamentos/${id}`);
+      await load();
+      setMessage('Cartao removido.');
+    } catch (requestError: any) {
+      setError(requestError.response?.data?.message ?? 'Nao foi possivel remover o cartao.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const confirmLogout = async () => {
@@ -332,3 +343,4 @@ export const Profile = () => {
     </StoreLayout>
   );
 };
+

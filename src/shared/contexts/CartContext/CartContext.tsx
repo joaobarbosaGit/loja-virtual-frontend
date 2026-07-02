@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useEffect, useMemo, useState } from 'react';
+﻿import { createContext, ReactNode, useEffect, useMemo, useState } from 'react';
 
 import { CartItem, Product } from '../../protocols';
 import { cartService } from '../../services';
@@ -50,7 +50,7 @@ export const CartProvider = ({ children }: CartProviderProps) => {
   const value = useMemo(
     () => ({
       items,
-      itemsCount: items.reduce((total, item) => total + item.quantity, 0),
+      itemsCount: items.length,
       subtotal: items.reduce((total, item) => total + item.product.price * item.quantity, 0),
       addItem,
       updateItemQuantity,
@@ -63,3 +63,4 @@ export const CartProvider = ({ children }: CartProviderProps) => {
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 };
+

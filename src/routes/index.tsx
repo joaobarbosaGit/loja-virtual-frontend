@@ -1,9 +1,10 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+﻿import { Navigate, Route, Routes } from 'react-router-dom';
 
 import { Cart } from '../pages/Cart';
 import { Checkout } from '../pages/Checkout';
 import { Home } from '../pages/Home';
 import { Login } from '../pages/Login';
+import { AdminLogin } from '../pages/AdminLogin';
 import { AdminDashboard } from '../pages/AdminDashboard';
 import { AdminStore } from '../pages/AdminStore';
 import { Orders } from '../pages/Orders';
@@ -27,6 +28,7 @@ export const AppRoutes = () => (
   <Routes>
     <Route path="/" element={<InitialRoute />} />
     <Route path="/login" element={<Login />} />
+    <Route path="/admin/login" element={<AdminLogin />} />
     <Route
       path="/home"
       element={(

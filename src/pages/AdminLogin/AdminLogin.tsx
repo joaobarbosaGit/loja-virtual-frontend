@@ -9,8 +9,6 @@ import {
   IconButton,
   InputAdornment,
   Stack,
-  Tabs,
-  Tab,
   TextField,
   Typography,
 } from '@mui/material';
@@ -18,14 +16,13 @@ import { useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../../shared/hooks';
 import { StoreLayout } from '../../shared/layouts/StoreLayout';
-import { LoginCard } from './styles';
+import { LoginCard } from '../Login/styles';
 
-export const Login = () => {
+export const AdminLogin = () => {
   const navigate = useNavigate();
-  const { login, register } = useAuth();
-  const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const { loginAdmin } = useAuth();
+  const [company, setCompany] = useState('1');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -37,12 +34,10 @@ export const Login = () => {
     setErrorMessage('');
 
     try {
-      const authenticatedUser = mode === 'login'
-        ? await login({ email, password })
-        : await register({ name, email, password });
-      navigate(authenticatedUser.role === 'admin' ? '/admin' : '/home');
+      await loginAdmin({ company: Number(company), username, password });
+      navigate('/admin');
     } catch (requestError: any) {
-      setErrorMessage(requestError.response?.data?.message ?? 'Nao foi possivel acessar sua conta.');
+      setErrorMessage(requestError.response?.data?.message ?? 'Nao foi possivel acessar a administracao.');
     } finally {
       setIsLoading(false);
     }
@@ -53,35 +48,26 @@ export const Login = () => {
       <LoginCard>
         <Box component="form" onSubmit={handleSubmit}>
           <Stack gap={3}>
-            <Typography fontWeight={900} variant="h4">
-              {mode === 'login' ? 'Acessar conta' : 'Criar conta'}
-            </Typography>
+            <Typography fontWeight={900} variant="h4">Acesso administrativo</Typography>
             <Typography color="text.secondary">
-              {mode === 'login'
-                ? 'Entre com o e-mail e senha cadastrados para acessar a loja.'
-                : 'Cadastre-se para comprar, acompanhar pedidos e gerenciar seu perfil.'}
+              Entre com empresa, usuario e senha administrativa.
             </Typography>
-            <Tabs value={mode} onChange={(_, value) => setMode(value)}>
-              <Tab label="Entrar" value="login" />
-              <Tab label="Cadastrar" value="register" />
-            </Tabs>
             {errorMessage && <Alert severity="error">{errorMessage}</Alert>}
-            {mode === 'register' && (
-              <TextField
-                fullWidth
-                required
-                label="Nome completo"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-              />
-            )}
             <TextField
               fullWidth
               required
-              label="E-mail"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              label="Empresa"
+              type="number"
+              inputProps={{ min: 1 }}
+              value={company}
+              onChange={(event) => setCompany(event.target.value)}
+            />
+            <TextField
+              fullWidth
+              required
+              label="Usuario"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
             />
             <TextField
               fullWidth
@@ -105,7 +91,7 @@ export const Login = () => {
               onChange={(event) => setPassword(event.target.value)}
             />
             <Button size="large" type="submit" variant="contained">
-              {isLoading ? <CircularProgress color="inherit" size={22} /> : mode === 'register' ? 'Criar conta' : 'Entrar'}
+              {isLoading ? <CircularProgress color="inherit" size={22} /> : 'Entrar'}
             </Button>
           </Stack>
         </Box>

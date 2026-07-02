@@ -1,7 +1,8 @@
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import RemoveIcon from '@mui/icons-material/Remove';
 import AddIcon from '@mui/icons-material/Add';
-import { Box, Button, Divider, IconButton, Stack, Typography } from '@mui/material';
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, IconButton, Stack, Typography } from '@mui/material';
+import { useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 
 import { useCart } from '../../shared/hooks';
@@ -11,6 +12,22 @@ import { CartPanel } from './styles';
 
 export const Cart = () => {
   const { items, removeItem, subtotal, updateItemQuantity } = useCart();
+  const [itemPendingRemoval, setItemPendingRemoval] = useState<string | null>(null);
+
+  const handleDecreaseQuantity = async (productId: string, quantity: number) => {
+    if (quantity <= 1) {
+      setItemPendingRemoval(productId);
+      return;
+    }
+
+    await updateItemQuantity(productId, quantity - 1);
+  };
+
+  const confirmRemoveItem = async () => {
+    if (!itemPendingRemoval) return;
+    await removeItem(itemPendingRemoval);
+    setItemPendingRemoval(null);
+  };
 
   return (
     <StoreLayout>
@@ -36,7 +53,7 @@ export const Cart = () => {
               <Box alignItems="center" display="flex" gap={1}>
                 <IconButton
                   aria-label="Diminuir quantidade"
-                  onClick={() => void updateItemQuantity(item.product.id, item.quantity - 1)}
+                  onClick={() => void handleDecreaseQuantity(item.product.id, item.quantity)}
                 >
                   <RemoveIcon />
                 </IconButton>
@@ -66,6 +83,21 @@ export const Cart = () => {
           </Button>
         </Stack>
       </CartPanel>
+
+      <Dialog open={Boolean(itemPendingRemoval)} onClose={() => setItemPendingRemoval(null)}>
+        <DialogTitle>Remover item do carrinho?</DialogTitle>
+        <DialogContent>
+          <Typography color="text.secondary">
+            Este item tem apenas uma unidade no carrinho. Deseja remove-lo?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setItemPendingRemoval(null)}>Cancelar</Button>
+          <Button color="error" variant="contained" onClick={() => void confirmRemoveItem()}>
+            Remover item
+          </Button>
+        </DialogActions>
+      </Dialog>
     </StoreLayout>
   );
 };

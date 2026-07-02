@@ -41,7 +41,13 @@ export const Home = () => {
 
   return (
     <StoreLayout>
-      {!isLoading && featuredProducts.length > 0 ? (
+      {isLoading ? (
+        <Section>
+          <Box display="flex" justifyContent="center" py={4}>
+            <CircularProgress />
+          </Box>
+        </Section>
+      ) : featuredProducts.length > 0 ? (
         <HeroCarousel>
           <HeroCarouselTrack sx={{ transform: `translateX(-${activeFeaturedIndex * 100}%)` }}>
             {featuredProducts.map((product) => (
@@ -117,13 +123,7 @@ export const Home = () => {
         </Section>
       )}
 
-      {isLoading && (
-        <Section>
-          <Box display="flex" justifyContent="center" py={4}>
-            <CircularProgress />
-          </Box>
-        </Section>
-      )}
+
 
       {!isLoading && (
         <Section>

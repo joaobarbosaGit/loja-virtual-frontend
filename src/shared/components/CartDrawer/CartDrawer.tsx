@@ -1,6 +1,9 @@
+import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import { Box, Button, Divider, Drawer, IconButton, Stack, Typography } from '@mui/material';
+import RemoveIcon from '@mui/icons-material/Remove';
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Drawer, IconButton, Stack, Typography } from '@mui/material';
+import { useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 
 import { useCart } from '../../hooks';
@@ -13,7 +16,23 @@ interface CartDrawerProps {
 }
 
 export const CartDrawer = ({ open, onClose }: CartDrawerProps) => {
-  const { items, removeItem, subtotal } = useCart();
+  const { items, removeItem, subtotal, updateItemQuantity } = useCart();
+  const [itemPendingRemoval, setItemPendingRemoval] = useState<string | null>(null);
+
+  const handleDecreaseQuantity = async (productId: string, quantity: number) => {
+    if (quantity <= 1) {
+      setItemPendingRemoval(productId);
+      return;
+    }
+
+    await updateItemQuantity(productId, quantity - 1);
+  };
+
+  const confirmRemoveItem = async () => {
+    if (!itemPendingRemoval) return;
+    await removeItem(itemPendingRemoval);
+    setItemPendingRemoval(null);
+  };
 
   return (
     <Drawer anchor="right" open={open} onClose={onClose}>
@@ -43,6 +62,26 @@ export const CartDrawer = ({ open, onClose }: CartDrawerProps) => {
                 <Typography color="text.secondary" variant="body2">
                   {item.quantity} x {formatCurrency(item.product.price)}
                 </Typography>
+                <Box alignItems="center" display="flex" gap={1} mt={1}>
+                  <IconButton
+                    aria-label="Diminuir quantidade"
+                    size="small"
+                    onClick={() => void handleDecreaseQuantity(item.product.id, item.quantity)}
+                  >
+                    <RemoveIcon fontSize="small" />
+                  </IconButton>
+                  <Typography fontWeight={800} minWidth={24} textAlign="center" variant="body2">
+                    {item.quantity}
+                  </Typography>
+                  <IconButton
+                    aria-label="Aumentar quantidade"
+                    disabled={!item.product.allowOutOfStockSale && item.quantity >= item.product.stock}
+                    size="small"
+                    onClick={() => void updateItemQuantity(item.product.id, item.quantity + 1)}
+                  >
+                    <AddIcon fontSize="small" />
+                  </IconButton>
+                </Box>
               </Box>
               <IconButton onClick={() => void removeItem(item.product.id)}>
                 <DeleteOutlineIcon />
@@ -60,6 +99,21 @@ export const CartDrawer = ({ open, onClose }: CartDrawerProps) => {
           Finalizar compra
         </Button>
       </DrawerContent>
+
+      <Dialog open={Boolean(itemPendingRemoval)} onClose={() => setItemPendingRemoval(null)}>
+        <DialogTitle>Remover item do carrinho?</DialogTitle>
+        <DialogContent>
+          <Typography color="text.secondary">
+            Este item tem apenas uma unidade no carrinho. Deseja remove-lo?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setItemPendingRemoval(null)}>Cancelar</Button>
+          <Button color="error" variant="contained" onClick={() => void confirmRemoveItem()}>
+            Remover item
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Drawer>
   );
 };

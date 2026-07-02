@@ -6,6 +6,7 @@ export type StartPaymentRequest = {
   paymentConfigId?: number;
   paymentType?: string;
   installments?: number;
+  receiveOnDelivery?: boolean;
 };
 
 export type StartPaymentResponse = {

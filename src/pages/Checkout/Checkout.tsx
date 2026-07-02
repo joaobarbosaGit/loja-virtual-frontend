@@ -13,6 +13,7 @@ import {
   FormControl,
   FormControlLabel,
   IconButton,
+  Switch,
   Paper,
   Radio,
   RadioGroup,
@@ -42,6 +43,7 @@ interface PaymentConfig {
   permiteParcelamento: boolean;
   maxParcelas: number;
   valorMinimoParcela: number;
+  recebeNaEntrega: boolean;
   instrucoes?: string;
 }
 
@@ -72,6 +74,7 @@ export const Checkout = () => {
   const [paymentConfigId, setPaymentConfigId] = useState<number | ''>('');
   const [paymentMethodId, setPaymentMethodId] = useState('');
   const [installments, setInstallments] = useState(1);
+  const [receiveOnDelivery, setReceiveOnDelivery] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -91,7 +94,9 @@ export const Checkout = () => {
 
   const addressComplete = Boolean(profile?.address.street && profile.address.number && profile.address.city && profile.address.state && profile.address.zipCode);
   const selectedPayment = paymentConfigs.find((payment) => payment.id === paymentConfigId);
-  const requiresSavedCard = selectedPayment?.tipo === 'CARTAO_CREDITO' || selectedPayment?.tipo === 'CARTAO_DEBITO';
+  const canReceiveOnDelivery = Boolean(selectedPayment?.recebeNaEntrega);
+  const willReceiveOnDelivery = canReceiveOnDelivery && receiveOnDelivery;
+  const requiresSavedCard = !willReceiveOnDelivery && (selectedPayment?.tipo === 'CARTAO_CREDITO' || selectedPayment?.tipo === 'CARTAO_DEBITO');
   const installmentOptions = selectedPayment?.permiteParcelamento
     ? Array.from({ length: selectedPayment.maxParcelas }, (_, index) => index + 1).filter((option) => !selectedPayment.valorMinimoParcela || subtotal / option >= selectedPayment.valorMinimoParcela)
     : [1];
@@ -119,13 +124,14 @@ export const Checkout = () => {
         paymentConfigId: selectedPayment?.id,
         paymentType: selectedPayment?.tipo,
         installments,
+        receiveOnDelivery: willReceiveOnDelivery,
       });
       await clearCart();
       setCompletedOrder({
         id: result.orderId,
         status: result.status,
         total: result.total,
-        paymentDescription: selectedPayment?.descricao,
+        paymentDescription: selectedPayment?.descricao ? `${selectedPayment.descricao}${willReceiveOnDelivery ? ' - receber na entrega' : ''}` : undefined,
         installments,
         items: orderItems,
       });
@@ -166,7 +172,7 @@ export const Checkout = () => {
               <Typography fontWeight={800} variant="h6">Pagamento</Typography>
               {paymentConfigs.length ? (
                 <FormControl>
-                  <RadioGroup value={paymentConfigId} onChange={(event) => { setPaymentConfigId(Number(event.target.value)); setInstallments(1); }}>
+                  <RadioGroup value={paymentConfigId} onChange={(event) => { setPaymentConfigId(Number(event.target.value)); setInstallments(1); setReceiveOnDelivery(false); }}>
                     {paymentConfigs.map((method) => <FormControlLabel control={<Radio />} key={method.id} label={method.descricao} value={method.id} />)}
                   </RadioGroup>
                 </FormControl>
@@ -174,6 +180,12 @@ export const Checkout = () => {
                 <Alert severity="warning">Nenhuma forma de pagamento ativa para esta loja.</Alert>
               )}
               {selectedPayment?.instrucoes && <Typography color="text.secondary">{selectedPayment.instrucoes}</Typography>}
+              {canReceiveOnDelivery && (
+                <FormControlLabel
+                  control={<Switch checked={receiveOnDelivery} onChange={(event) => setReceiveOnDelivery(event.target.checked)} />}
+                  label="Receber pagamento na entrega"
+                />
+              )}
               {requiresSavedCard && (profile?.paymentMethods.length ? (
                 <FormControl>
                   <RadioGroup value={paymentMethodId} onChange={(event) => setPaymentMethodId(event.target.value)}>

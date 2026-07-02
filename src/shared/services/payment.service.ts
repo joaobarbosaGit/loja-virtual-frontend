@@ -7,6 +7,7 @@ export type StartPaymentRequest = {
   paymentType?: string;
   installments?: number;
   receiveOnDelivery?: boolean;
+  deliveryMode?: 'delivery' | 'pickup';
 };
 
 export type StartPaymentResponse = {

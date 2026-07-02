@@ -1,4 +1,4 @@
-﻿import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import {
   Alert,
@@ -48,16 +48,44 @@ interface ProfileData {
     city: string;
     state: string;
     zipCode: string;
+    latitude?: number;
+    longitude?: number;
   };
   paymentMethods: PaymentMethod[];
 }
 
+const hasCoordinates = (address: ProfileData['address']) => Boolean(address.latitude && address.longitude);
+
+const buildAddressSearch = (address: ProfileData['address']) => [
+  `${address.street} ${address.number}`.trim(),
+  address.district,
+  address.city,
+  address.state,
+  address.zipCode,
+  'Brasil',
+].filter(Boolean).join(', ');
+
+const geocodeAddress = async (address: ProfileData['address']) => {
+  const params = new URLSearchParams({
+    format: 'jsonv2',
+    limit: '1',
+    countrycodes: 'br',
+    q: buildAddressSearch(address),
+  });
+  const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`);
+  if (!response.ok) return null;
+  const [result] = await response.json() as { lat?: string; lon?: string }[];
+  const latitude = Number(result?.lat);
+  const longitude = Number(result?.lon);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return { latitude: Number(latitude.toFixed(6)), longitude: Number(longitude.toFixed(6)) };
+};
 const emptyProfile: ProfileData = {
   name: '',
   email: '',
   cpf: '',
   phone: '',
-  address: { street: '', number: '', complement: '', district: '', city: '', state: '', zipCode: '' },
+  address: { street: '', number: '', complement: '', district: '', city: '', state: '', zipCode: '', latitude: 0, longitude: 0 },
   paymentMethods: [],
 };
 
@@ -120,6 +148,7 @@ export const Profile = () => {
   const [card, setCard] = useState({ cardNumber: '', holder: '', expiry: '', cvc: '' });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [locating, setLocating] = useState(false);
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -138,8 +167,42 @@ export const Profile = () => {
 
   useEffect(() => { void load(); }, []);
 
-  const address = (field: keyof ProfileData['address'], value: string) => {
-    setProfile((current) => ({ ...current, address: { ...current.address, [field]: value } }));
+  const address = (field: keyof ProfileData['address'], value: string | number) => {
+    setProfile((current) => {
+      if (field === 'latitude' || field === 'longitude') {
+        return { ...current, address: { ...current.address, [field]: value } };
+      }
+      return { ...current, address: { ...current.address, [field]: value, latitude: 0, longitude: 0 } };
+    });
+  };
+
+  const locateByCurrentPosition = () => {
+    setMessage('');
+    setError('');
+    if (!navigator.geolocation) {
+      setError('Seu navegador nao permite usar a localizacao atual.');
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setProfile((current) => ({
+          ...current,
+          address: {
+            ...current.address,
+            latitude: Number(position.coords.latitude.toFixed(6)),
+            longitude: Number(position.coords.longitude.toFixed(6)),
+          },
+        }));
+        setMessage('Localizacao atual vinculada ao endereco. Confira os dados e salve o perfil.');
+        setLocating(false);
+      },
+      () => {
+        setError('Nao foi possivel acessar sua localizacao atual.');
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, maximumAge: 60000, timeout: 10000 },
+    );
   };
 
   const saveProfile = async (event: FormEvent) => {
@@ -149,9 +212,19 @@ export const Profile = () => {
     setError('');
 
     try {
-      const { data } = await api.put<ProfileData>('/loja/perfil', profile);
+      let nextProfile = profile;
+      let coordinatesWereFound = hasCoordinates(profile.address);
+      if (!coordinatesWereFound) {
+        const coordinates = await geocodeAddress(profile.address);
+        if (coordinates) {
+          coordinatesWereFound = true;
+          nextProfile = { ...profile, address: { ...profile.address, ...coordinates } };
+        }
+      }
+
+      const { data } = await api.put<ProfileData>('/loja/perfil', nextProfile);
       setProfile(normalizeProfile(data));
-      setMessage('Perfil e endereco salvos.');
+      setMessage(coordinatesWereFound ? 'Perfil e endereco salvos.' : 'Perfil salvo. Nao conseguimos localizar o endereco automaticamente; no checkout use retirada no local ou tente usar sua localizacao atual.');
     } catch (requestError: any) {
       setError(requestError.response?.data?.message ?? 'Nao foi possivel salvar o perfil.');
     } finally {
@@ -270,6 +343,14 @@ export const Profile = () => {
                     <TextField required fullWidth label="CEP" placeholder="00000-000" value={profile.address.zipCode} onChange={(event) => address('zipCode', maskCep(event.target.value))} />
                   </Grid>
                 </Grid>
+                <Alert severity={hasCoordinates(profile.address) ? 'success' : 'info'}>
+                  {hasCoordinates(profile.address)
+                    ? 'Endereco localizado para calculo de entrega.'
+                    : 'Ao salvar, vamos tentar localizar seu endereco automaticamente para calcular a entrega.'}
+                </Alert>
+                <Button disabled={saving || locating} onClick={locateByCurrentPosition} variant="outlined">
+                  {locating ? <CircularProgress size={20} /> : 'Usar minha localizacao atual'}
+                </Button>
                 <Button disabled={saving} type="submit" variant="contained">
                   {saving ? <CircularProgress color="inherit" size={22} /> : 'Salvar perfil'}
                 </Button>

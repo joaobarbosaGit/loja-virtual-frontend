@@ -1,4 +1,6 @@
-﻿import { ChangeEvent, useEffect, useState } from 'react';
+import { ChangeEvent, useEffect, useRef, useState } from 'react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import AddIcon from '@mui/icons-material/Add';
 import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
@@ -36,6 +38,8 @@ type OrderDetail = OrderRow & {
   items: { id: number; productId: number; productName: string; quantity: number; unitValue: number; total: number }[];
   logs: { id: number; adminUserId?: number; adminName?: string; previousStatus?: string; newStatus?: string; field?: string; justification?: string; createdAt: string }[];
 };
+type DeliveryRange = { upToKm: number; fee: number };
+type DeliverySettings = { enabled: boolean; origin: { latitude: number; longitude: number }; maxDistanceKm: number; freeFrom: number; ranges: DeliveryRange[] };
 type PaymentRow = { id: number; tipo: string; descricao: string; ativo: boolean; permiteParcelamento: boolean; recebeNaEntrega: boolean; maxParcelas: number; valorMinimoParcela: number; instrucoes?: string };
 type HighlightRow = ProductRow & { id: number; productId: number; createdAt: string; highlightImageAvailable?: boolean; highlightImageUrl?: string };
 type StoreSettings = {
@@ -52,9 +56,112 @@ type StoreSettings = {
     iconeUrl: string;
     bannerUrl: string;
     descricao: string;
+    delivery: DeliverySettings;
   };
 };
 
+
+type DeliveryMapPickerProps = {
+  latitude: number;
+  longitude: number;
+  onChange: (point: { latitude: number; longitude: number }) => void;
+};
+
+const fallbackMapPoint = { latitude: -3.7319, longitude: -38.5267 };
+const redMapPinIcon = L.divIcon({
+  className: 'store-delivery-map-pin',
+  html: '<div style="position:relative;width:28px;height:28px;transform:translate(-14px,-28px);"><div style="position:absolute;left:6px;top:0;width:16px;height:16px;background:#d32f2f;border:2px solid #fff;border-radius:50% 50% 50% 0;box-shadow:0 2px 8px rgba(0,0,0,.35);transform:rotate(-45deg);"></div><div style="position:absolute;left:12px;top:6px;width:6px;height:6px;background:#fff;border-radius:50%;"></div></div>',
+  iconSize: [28, 28],
+  iconAnchor: [14, 28],
+});
+
+const parseDecimalInput = (value: string) => {
+  const parsed = Number(value.replace(',', '.'));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const parsePositiveIntegerInput = (value: string) => {
+  const parsed = Math.trunc(parseDecimalInput(value));
+  return parsed > 0 ? parsed : 0;
+};
+
+const parseMoneyInput = (value: string) => {
+  const parsed = parseDecimalInput(value);
+  return parsed > 0 ? Math.round(parsed * 100) / 100 : 0;
+};
+
+const deliveryFeeLabel = (fee: number) => (fee > 0 ? formatCurrency(fee) : 'Gratis');
+
+const getDeliveryValidationError = (delivery: DeliverySettings) => {
+  if (!delivery.enabled) return '';
+  if (!Number.isFinite(delivery.origin.latitude) || !Number.isFinite(delivery.origin.longitude) || (delivery.origin.latitude === 0 && delivery.origin.longitude === 0)) return 'Informe a latitude e longitude da loja.';
+  if (!Number.isInteger(delivery.maxDistanceKm) || delivery.maxDistanceKm <= 0) return 'Informe um raio maximo inteiro e positivo.';
+  if (delivery.freeFrom < 0) return 'O valor de frete gratis deve ser positivo.';
+  if (!delivery.ranges.length) return 'Informe pelo menos uma faixa de entrega.';
+  let previousUpTo = 0;
+  for (const [index, range] of delivery.ranges.entries()) {
+    if (!Number.isInteger(range.upToKm) || range.upToKm <= 0) return `A faixa ${index + 1} deve ter limite em km inteiro e positivo.`;
+    if (range.upToKm <= previousUpTo) return `A faixa ${index + 1} deve terminar depois da faixa anterior.`;
+    if (range.fee < 0) return `A taxa da faixa ${index + 1} deve ser positiva ou zero.`;
+    if (Math.round(range.fee * 100) !== range.fee * 100) return `A taxa da faixa ${index + 1} deve ter no maximo duas casas decimais.`;
+    previousUpTo = range.upToKm;
+  }
+  if (previousUpTo < delivery.maxDistanceKm) return `As faixas cobrem ate ${previousUpTo} km, mas o raio maximo e ${delivery.maxDistanceKm} km.`;
+  return '';
+};
+
+const DeliveryMapPicker = ({ latitude, longitude, onChange }: DeliveryMapPickerProps) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const markerRef = useRef<L.Marker | null>(null);
+
+  const hasPoint = Number.isFinite(latitude) && Number.isFinite(longitude) && (latitude !== 0 || longitude !== 0);
+  const center = hasPoint ? { latitude, longitude } : fallbackMapPoint;
+
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return;
+
+    const map = L.map(containerRef.current, { zoomControl: true }).setView([center.latitude, center.longitude], hasPoint ? 15 : 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap',
+    }).addTo(map);
+
+    const marker = L.marker([center.latitude, center.longitude], { icon: redMapPinIcon }).addTo(map);
+
+    const setPoint = (lat: number, lng: number, shouldNotify = true) => {
+      const nextPoint = {
+        latitude: Number(lat.toFixed(6)),
+        longitude: Number(lng.toFixed(6)),
+      };
+      marker.setLatLng([nextPoint.latitude, nextPoint.longitude]);
+      map.setView([nextPoint.latitude, nextPoint.longitude], Math.max(map.getZoom(), 15));
+      if (shouldNotify) onChange(nextPoint);
+    };
+
+    map.on('click', (event) => setPoint(event.latlng.lat, event.latlng.lng));
+
+    if (!hasPoint && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => setPoint(position.coords.latitude, position.coords.longitude),
+        () => undefined,
+        { enableHighAccuracy: true, maximumAge: 60000, timeout: 8000 },
+      );
+    }
+
+    mapRef.current = map;
+    markerRef.current = marker;
+
+    setTimeout(() => map.invalidateSize(), 0);
+  }, []);
+
+  useEffect(() => {
+    if (!mapRef.current || !markerRef.current) return;
+    markerRef.current.setLatLng([center.latitude, center.longitude]);
+    mapRef.current.setView([center.latitude, center.longitude], hasPoint ? Math.max(mapRef.current.getZoom(), 15) : mapRef.current.getZoom());
+  }, [center.latitude, center.longitude, hasPoint]);
+
+  return <Box ref={containerRef} sx={{ borderRadius: 1, height: 320, overflow: 'hidden', width: '100%' }} />;
+};
 const tabPaths: Record<AdminTab, string> = {
   produtos: '/admin/produtos-loja',
   pedidos: '/admin/pedidos',
@@ -88,6 +195,7 @@ const emptySettings: StoreSettings = {
     iconeUrl: '',
     bannerUrl: '',
     descricao: '',
+    delivery: { enabled: false, origin: { latitude: 0, longitude: 0 }, maxDistanceKm: 0, freeFrom: 0, ranges: [{ upToKm: 2, fee: 0 }, { upToKm: 5, fee: 8 }, { upToKm: 10, fee: 15 }] },
   },
 };
 const formatDate = (value?: string) => (value ? new Date(value).toLocaleString('pt-BR') : '-');
@@ -137,12 +245,56 @@ export const AdminStore = () => {
   const [apiUrlDialogOpen, setApiUrlDialogOpen] = useState(false);
   const [apiUrlConfirmOpen, setApiUrlConfirmOpen] = useState(false);
   const [settingsConfirmOpen, setSettingsConfirmOpen] = useState(false);
+  const [lowerDeliveryFeeConfirm, setLowerDeliveryFeeConfirm] = useState<{ index: number; fee: number; previousFee: number } | null>(null);
   const [healthChecking, setHealthChecking] = useState(false);
   const [healthResult, setHealthResult] = useState('');
 
   const clearFeedback = () => { setMessage(''); setError(''); };
   const updateSettingsConfig = (config: Partial<StoreSettings['config']>) => {
     setSettings((current) => ({ ...current, config: { ...current.config, ...config } }));
+  };
+  const updateDeliveryConfig = (delivery: Partial<DeliverySettings>) => {
+    setSettings((current) => ({ ...current, config: { ...current.config, delivery: { ...current.config.delivery, ...delivery } } }));
+  };
+  const updateDeliveryRange = (index: number, range: Partial<DeliveryRange>) => {
+    setSettings((current) => ({
+      ...current,
+      config: {
+        ...current.config,
+        delivery: {
+          ...current.config.delivery,
+          ranges: current.config.delivery.ranges.map((entry, entryIndex) => (entryIndex === index ? { ...entry, ...range } : entry)),
+        },
+      },
+    }));
+  };
+  const addDeliveryRange = () => {
+    setSettings((current) => {
+      const ranges = current.config.delivery.ranges;
+      const previousLimit = ranges[ranges.length - 1]?.upToKm ?? 0;
+      const nextLimit = current.config.delivery.maxDistanceKm > previousLimit ? current.config.delivery.maxDistanceKm : previousLimit + 1;
+      return { ...current, config: { ...current.config, delivery: { ...current.config.delivery, ranges: [...ranges, { upToKm: nextLimit, fee: 0 }] } } };
+    });
+  };
+  const removeDeliveryRange = (index: number) => {
+    setSettings((current) => ({ ...current, config: { ...current.config, delivery: { ...current.config.delivery, ranges: current.config.delivery.ranges.filter((_, entryIndex) => entryIndex !== index) } } }));
+  };
+  const updateDeliveryRangeFee = (index: number, fee: number) => {
+    const previousFee = settings.config.delivery.ranges[index - 1]?.fee;
+    if (index > 0 && previousFee !== undefined && fee < previousFee) {
+      setLowerDeliveryFeeConfirm({ index, fee, previousFee });
+      return;
+    }
+    updateDeliveryRange(index, { fee });
+  };
+  const requestSaveSettings = () => {
+    clearFeedback();
+    const validationError = getDeliveryValidationError(settings.config.delivery);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    setSettingsConfirmOpen(true);
   };
 
   const loadProducts = async (nextPage = page) => {
@@ -707,7 +859,35 @@ export const AdminStore = () => {
                       />
                     </Grid>
                   </Grid>
-                  <Button variant="contained" onClick={() => setSettingsConfirmOpen(true)}>Salvar configuracoes</Button>
+                  <Divider />
+                  <Typography fontWeight={800} variant="h6">Entrega</Typography>
+                  <FormControlLabel control={<Switch checked={settings.config.delivery.enabled} onChange={(event) => updateDeliveryConfig({ enabled: event.target.checked })} />} label="Ativar calculo de entrega" />
+                  <DeliveryMapPicker
+                    latitude={settings.config.delivery.origin.latitude}
+                    longitude={settings.config.delivery.origin.longitude}
+                    onChange={(point) => updateDeliveryConfig({ origin: point })}
+                  />
+                  <Grid container spacing={2}>
+                    <Grid item sm={6} xs={12}><TextField fullWidth label="Latitude da loja" inputProps={{ inputMode: 'decimal' }} value={settings.config.delivery.origin.latitude} onChange={(event) => updateDeliveryConfig({ origin: { ...settings.config.delivery.origin, latitude: parseDecimalInput(event.target.value) } })} /></Grid>
+                    <Grid item sm={6} xs={12}><TextField fullWidth label="Longitude da loja" inputProps={{ inputMode: 'decimal' }} value={settings.config.delivery.origin.longitude} onChange={(event) => updateDeliveryConfig({ origin: { ...settings.config.delivery.origin, longitude: parseDecimalInput(event.target.value) } })} /></Grid>
+                    <Grid item sm={6} xs={12}><TextField fullWidth label="Raio maximo (km)" helperText="Informe um numero inteiro positivo" inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }} value={settings.config.delivery.maxDistanceKm} onChange={(event) => updateDeliveryConfig({ maxDistanceKm: parsePositiveIntegerInput(event.target.value) })} /></Grid>
+                    <Grid item sm={6} xs={12}><TextField fullWidth label="Frete gratis a partir de valor do pedido (R$)" helperText={settings.config.delivery.freeFrom > 0 ? `Pedidos a partir de ${formatCurrency(settings.config.delivery.freeFrom)} terao entrega gratis` : 'Sem minimo por valor do pedido'} inputProps={{ inputMode: 'decimal' }} value={settings.config.delivery.freeFrom} onChange={(event) => updateDeliveryConfig({ freeFrom: parseMoneyInput(event.target.value) })} /></Grid>
+                  </Grid>
+                  <Stack gap={1}>
+                    <Box alignItems="center" display="flex" justifyContent="space-between"><Typography fontWeight={700}>Faixas por distancia</Typography><Button size="small" onClick={addDeliveryRange}>Adicionar faixa</Button></Box>
+                    {settings.config.delivery.ranges.map((range, index) => {
+                      const fromKm = index === 0 ? 0 : settings.config.delivery.ranges[index - 1].upToKm;
+                      return (
+                      <Grid container key={index} spacing={1}>
+                        <Grid item sm={3} xs={12}><TextField disabled fullWidth label="De km" value={fromKm} /></Grid>
+                        <Grid item sm={3} xs={12}><TextField fullWidth label="Ate km" helperText="Inteiro positivo" inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }} value={range.upToKm} onChange={(event) => updateDeliveryRange(index, { upToKm: parsePositiveIntegerInput(event.target.value) })} /></Grid>
+                        <Grid item sm={4} xs={12}><TextField fullWidth label="Taxa" helperText={deliveryFeeLabel(range.fee)} inputProps={{ inputMode: 'decimal' }} value={range.fee} onChange={(event) => updateDeliveryRangeFee(index, parseMoneyInput(event.target.value))} /></Grid>
+                        <Grid item sm={2} xs={12}><IconButton aria-label="Remover faixa" onClick={() => removeDeliveryRange(index)}><DeleteOutlineIcon /></IconButton></Grid>
+                      </Grid>
+                      );
+                    })}
+                  </Stack>
+                  <Button variant="contained" onClick={requestSaveSettings}>Salvar configuracoes</Button>
                 </Stack>
               </Paper>
             </Grid>
@@ -783,6 +963,23 @@ export const AdminStore = () => {
         </DialogActions>
       </Dialog>
 
+      <Dialog open={Boolean(lowerDeliveryFeeConfirm)} onClose={() => setLowerDeliveryFeeConfirm(null)}>
+        <DialogTitle>Confirmar taxa menor</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning">
+            Esta faixa ficara com valor menor que a faixa anterior. Confirme apenas se esta for a regra desejada para a entrega.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLowerDeliveryFeeConfirm(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={() => {
+            if (lowerDeliveryFeeConfirm) updateDeliveryRange(lowerDeliveryFeeConfirm.index, { fee: lowerDeliveryFeeConfirm.fee });
+            setLowerDeliveryFeeConfirm(null);
+          }}>
+            Confirmar
+          </Button>
+        </DialogActions>
+      </Dialog>
       <Dialog open={settingsConfirmOpen} onClose={() => setSettingsConfirmOpen(false)}>
         <DialogTitle>Salvar configuracoes</DialogTitle>
         <DialogContent>
